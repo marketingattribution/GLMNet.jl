@@ -9,7 +9,7 @@ depsjl = joinpath(@__DIR__, "..", "deps", "deps.jl")
 if isfile(depsjl)
     include(depsjl)
 else
-    error("GLMNet not properly installed. Please run Pkg.build(\"GLMNet\") and restart julia")
+    @error("GLMNet not properly installed. Please run Pkg.build(\"GLMNet\") and restart julia")
 end
 
 function __init__()
@@ -171,9 +171,9 @@ devloss(::Poisson, y) = PoissonDeviance(y)
 # Check the dimensions of X, y, and weights
 function validate_x_y_weights(X, y, weights)
     size(X, 1) == size(y, 1) ||
-        error(DimensionMismatch("length of y must match rows in X"))
+        @error(DimensionMismatch("length of y must match rows in X"))
     length(weights) == size(y, 1) ||
-        error(DimensionMismatch("length of weights must match y"))
+        @error(DimensionMismatch("length of weights must match y"))
 end
 
 # Compute deviance for given model(s) with the predictors in X versus known
@@ -208,15 +208,15 @@ end
 
 function check_jerr(jerr, maxit)
     if 0 < jerr < 7777
-        error("glmnet: memory allocation error")
+        @error("glmnet: memory allocation error")
     elseif jerr == 7777
-        error("glmnet: all used predictors have zero variance")
+        @error("glmnet: all used predictors have zero variance")
     elseif jerr == 1000
-        error("glmnet: all predictors are unpenalized")
+        @error("glmnet: all predictors are unpenalized")
     elseif -10001 < jerr < 0
-        warn("glment: convergence for $(-jerr)th lambda value not reached after $maxit iterations")
+        @warn("glment: convergence for $(-jerr)th lambda value not reached after $maxit iterations")
     elseif jerr < -10000
-        warn("glmnet: number of non-zero coefficients along path exceeds $nx at $(maxit+10000)th lambda value")
+        @warn("glmnet: number of non-zero coefficients along path exceeds $nx at $(maxit+10000)th lambda value")
     end
 end
 
@@ -224,20 +224,21 @@ macro validate_and_init()
     esc(quote
         validate_x_y_weights(X, y, weights)
         length(penalty_factor) == size(X, 2) ||
-            error(DimensionMismatch("length of penalty_factor must match rows in X"))
+            @error(DimensionMismatch("length of penalty_factor must match rows in X"))
         (size(constraints, 1) == 2 && size(constraints, 2) == size(X, 2)) ||
-            error(DimensionMismatch("contraints must be a 2 x n matrix"))
-        0 <= lambda_min_ratio <= 1 || error("lambda_min_ratio must be in range [0.0, 1.0]")
+            @error(DimensionMismatch("contraints must be a 2 x n matrix"))
+        0 <= lambda_min_ratio <= 1 || @error("lambda_min_ratio must be in range [0.0, 1.0]")
 
         if !isempty(lambda)
             # user-specified lambda values
-            nlambda == 100 || error("cannot specify both lambda and nlambda")
+            nlambda == 100 || @error("cannot specify both lambda and nlambda")
             lambda_min_ratio == (length(y) < size(X, 2) ? 1e-2 : 1e-4) ||
-                error("cannot specify both lambda and lambda_min_ratio")
+                @error("cannot specify both lambda and lambda_min_ratio")
             nlambda = length(lambda)
             lambda_min_ratio = 2.0
         end
 
+        constraints = copy(constraints)
         lmu = Int32[0]
         a0 = zeros(Float64, nlambda)
         ca = Matrix{Float64}(undef, pmax, nlambda)
@@ -338,14 +339,14 @@ function glmnet!(X::Matrix{Float64}, y::Matrix{Float64},
              lambda::Vector{Float64}=Float64[], tol::Real=1e-7, standardize::Bool=true,
              intercept::Bool=true, maxit::Int=1000000, algorithm::Symbol=:newtonraphson)
     @validate_and_init
-    size(y, 2) == 2 || error("glmnet for logistic models requires a two-column matrix with "*
+    size(y, 2) == 2 || @error("glmnet for logistic models requires a two-column matrix with "*
                              "counts of negative responses in the first column and positive "*
                              "responses in the second")
     kopt = algorithm == :newtonraphson ? 0 :
            algorithm == :modifiednewtonraphson ? 1 :
-           algorithm == :nzsame ? 2 : error("unknown algorithm ")
+           algorithm == :nzsame ? 2 : @error("unknown algorithm ")
     offsets::Vector{Float64} = isa(offsets, Nothing) ? zeros(size(y, 1)) : copy(offsets)
-    length(offsets) == size(y, 1) || error("length of offsets must match length of y")
+    length(offsets) == size(y, 1) || @error("length of offsets must match length of y")
 
     null_dev = Vector{Float64}(undef, 1)
 
@@ -384,14 +385,14 @@ function glmnet!(X::SparseMatrixCSC{Float64,Int32}, y::Matrix{Float64},
              lambda::Vector{Float64}=Float64[], tol::Real=1e-7, standardize::Bool=true,
              intercept::Bool=true, maxit::Int=1000000, algorithm::Symbol=:newtonraphson)
     @validate_and_init
-    size(y, 2) == 2 || error("glmnet for logistic models requires a two-column matrix with "*
+    size(y, 2) == 2 || @error("glmnet for logistic models requires a two-column matrix with "*
                              "counts of negative responses in the first column and positive "*
                              "responses in the second")
     kopt = algorithm == :newtonraphson ? 0 :
            algorithm == :modifiednewtonraphson ? 1 :
-           algorithm == :nzsame ? 2 : error("unknown algorithm ")
+           algorithm == :nzsame ? 2 : @error("unknown algorithm ")
     offsets::Vector{Float64} = isa(offsets, Nothing) ? zeros(size(y, 1)) : copy(offsets)
-    length(offsets) == size(y, 1) || error("length of offsets must match length of y")
+    length(offsets) == size(y, 1) || @error("length of offsets must match length of y")
 
     null_dev = Vector{Float64}(undef, 1)
 
@@ -436,7 +437,7 @@ function glmnet!(X::Matrix{Float64}, y::Vector{Float64},
     null_dev = Vector{Float64}(undef, 1)
 
     offsets::Vector{Float64} = isa(offsets, Nothing) ? zeros(length(y)) : copy(offsets)
-    length(offsets) == length(y) || error("length of offsets must match length of y")
+    length(offsets) == length(y) || @error("length of offsets must match length of y")
 
     ccall((:fishnet_, libglmnet), Nothing,
           (Ref{Float64}, Ref{Int32}, Ref{Int32}, Ptr{Float64}, Ptr{Float64},
@@ -466,7 +467,7 @@ function glmnet!(X::SparseMatrixCSC{Float64,Int32}, y::Vector{Float64},
     null_dev = Vector{Float64}(undef, 1)
 
     offsets::Vector{Float64} = isa(offsets, Nothing) ? zeros(length(y)) : copy(offsets)
-    length(offsets) == length(y) || error("length of offsets must match length of y")
+    length(offsets) == length(y) || @error("length of offsets must match length of y")
 
     ccall((:spfishnet_, libglmnet), Nothing,
           (Ref{Float64}, Ref{Int32}, Ref{Int32}, Ptr{Float64}, Ptr{Int32}, Ptr{Int32},
