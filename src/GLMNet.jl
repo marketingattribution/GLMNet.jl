@@ -143,8 +143,8 @@ struct LogisticDeviance <: Loss
     fulldev::Vector{Float64}    # Deviance of model with parameter for each y
 end
 LogisticDeviance(y::Matrix{Float64}) =
-    LogisticDeviance(y, [((y[i, 1] == 0.0 ? 0.0 : log(y[i, 1])) +
-                          (y[i, 2] == 0.0 ? 0.0 : log(y[i, 2]))) for i = 1:size(y, 1)])
+    LogisticDeviance(y, [((y[i, 1] == 0.0 ? 0.0 : log(y[i, 1])) * y[i, 1] +
+        (y[i, 2] == 0.0 ? 0.0 : log(y[i, 2])) * y[i, 2]) for i = 1:size(y, 1)])
 
 # These are hard-coded in the glmnet Fortran code
 const PMIN = 1e-5
@@ -210,9 +210,9 @@ function check_jerr(jerr, maxit)
     if 0 < jerr < 7777
         @error("glmnet: memory allocation error")
     elseif jerr == 7777
-        @error("glmnet: all used predictors have zero variance")
+        @warn("glmnet: all used predictors have zero variance")
     elseif jerr == 1000
-        @error("glmnet: all predictors are unpenalized")
+        @warn("glmnet: all predictors are unpenalized")
     elseif -10001 < jerr < 0
         @warn("glment: convergence for $(-jerr)th lambda value not reached after $maxit iterations")
     elseif jerr < -10000
@@ -224,21 +224,20 @@ macro validate_and_init()
     esc(quote
         validate_x_y_weights(X, y, weights)
         length(penalty_factor) == size(X, 2) ||
-            @error(DimensionMismatch("length of penalty_factor must match rows in X"))
+            error(DimensionMismatch("length of penalty_factor must match rows in X"))
         (size(constraints, 1) == 2 && size(constraints, 2) == size(X, 2)) ||
-            @error(DimensionMismatch("contraints must be a 2 x n matrix"))
-        0 <= lambda_min_ratio <= 1 || @error("lambda_min_ratio must be in range [0.0, 1.0]")
+            error(DimensionMismatch("contraints must be a 2 x n matrix"))
+        0 <= lambda_min_ratio <= 1 || error("lambda_min_ratio must be in range [0.0, 1.0]")
 
         if !isempty(lambda)
             # user-specified lambda values
-            nlambda == 100 || @error("cannot specify both lambda and nlambda")
+            nlambda == 100 || error("cannot specify both lambda and nlambda")
             lambda_min_ratio == (length(y) < size(X, 2) ? 1e-2 : 1e-4) ||
-                @error("cannot specify both lambda and lambda_min_ratio")
+                error("cannot specify both lambda and lambda_min_ratio")
             nlambda = length(lambda)
             lambda_min_ratio = 2.0
         end
 
-        constraints = copy(constraints)
         lmu = Int32[0]
         a0 = zeros(Float64, nlambda)
         ca = Matrix{Float64}(undef, pmax, nlambda)
@@ -248,6 +247,8 @@ macro validate_and_init()
         alm = Vector{Float64}(undef, nlambda)
         nlp = Int32[0]
         jerr = Int32[0]
+        constraints = copy(constraints)
+        penalty_factor = copy(penalty_factor)
     end)
 end
 
@@ -260,7 +261,9 @@ macro check_and_return()
         if isempty(lambda) && length(alm) > 2
             alm[1] = exp(2*log(alm[2])-log(alm[3]))
         end
+
         X = CompressedPredictorMatrix(size(X, 2), ca[:, 1:lmu], ia, nin[1:lmu])
+
         GLMNetPath(family, a0[1:lmu], X, null_dev, fdev[1:lmu], alm[1:lmu], Int(nlp[1]))
     end)
 end
@@ -515,13 +518,23 @@ function show(io::IO, cv::GLMNetCrossValidation)
     print(io, )
 end
 
+function sample_folds(nfolds::Int, n_obs::Int, seed_value::Union{Int,Nothing})
+    n, r = divrem(n_obs, nfolds)
+    if seed_value == nothing
+        return Random.shuffle!([repeat(1:nfolds, outer=n); 1:r])
+    else
+        return Random.shuffle!(Random.MersenneTwister(seed_value), [repeat(1:nfolds, outer=n); 1:r])
+    end
+end
+
 function glmnetcv(X::AbstractMatrix, y::Union{AbstractVector,AbstractMatrix},
                   family::Distribution=Normal(); weights::Vector{Float64}=ones(length(y)),
                   nfolds::Int=min(10, div(size(y, 1), 3)),
+                  seed_value::Union{Int,Nothing}=nothing,
                   folds::Vector{Int}=begin
-                      n, r = divrem(size(y, 1), nfolds)
-                      shuffle!([repeat(1:nfolds, outer=n); 1:r])
-                  end, parallel::Bool=false, kw...)
+                      sample_folds(nfolds, size(y, 1), seed_value)
+                  end,
+                  parallel::Bool=false, kw...)
     # Fit full model once to determine parameters
     X = convert(Matrix{Float64}, X)
     y = convert(Array{Float64}, y)
