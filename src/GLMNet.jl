@@ -1,7 +1,7 @@
 __precompile__()
 
 module GLMNet
-using Distributions, StatsBase
+using Distributions, StatsBase, Dates
 using Distributed, Printf, Random, SparseArrays
 
 
@@ -522,9 +522,12 @@ function glmnetcv(X::AbstractMatrix, y::Union{AbstractVector,AbstractMatrix},
                       shuffle!([repeat(1:nfolds, outer=n); 1:r])
                   end, parallel::Bool=false, kw...)
     # Fit full model once to determine parameters
+    println("beginning of glmnetcv: ", Dates.format(now(), "HH:MM:SS.sss"))
     X = convert(Matrix{Float64}, X)
     y = convert(Array{Float64}, y)
+    println("before overall glmnet run: ", Dates.format(now(), "HH:MM:SS.sss"))
     path = glmnet(X, y, family; kw...)
+    println("after overall glmnet run: ", Dates.format(now(), "HH:MM:SS.sss"))
 
     # In case user defined folds
     nfolds = maximum(folds)
@@ -539,16 +542,20 @@ function glmnetcv(X::AbstractMatrix, y::Union{AbstractVector,AbstractMatrix},
     end
 
     # Do model fits and compute loss for each
+    println("before cv: ", Dates.format(now(), "HH:MM:SS.sss"))
     fits = (parallel ? pmap : map)(1:nfolds) do i
         f = folds .== i
         holdoutidx = findall(f)
         modelidx = findall(!, f)
+        println("before cv iteration", i, ": ",  Dates.format(now(), "HH:MM:SS.sss"))
         g = glmnet!(X[modelidx, :], isa(y, AbstractVector) ? y[modelidx] : y[modelidx, :], family;
                     weights=weights[modelidx], lambda=path.lambda, kw...)
+        println("after cv iteration", i, ": ", Dates.format(now(), "HH:MM:SS.sss"))
         loss(g, X[holdoutidx, :], isa(y, AbstractVector) ? y[holdoutidx] : y[holdoutidx, :],
              weights[holdoutidx])
     end
 
+    println("after cv: ", Dates.format(now(), "HH:MM:SS.sss"))
     fitloss = hcat(fits...)::Matrix{Float64}
 
     ninfold = zeros(Int, nfolds)
@@ -577,6 +584,7 @@ function glmnetcv(X::AbstractMatrix, y::Union{AbstractVector,AbstractMatrix},
         stdloss[i] = sqrt(stdloss[i]/length(folds)/(nfolds - 1))
     end
 
+    println("end of glmnetcv: ", Dates.format(now(), "HH:MM:SS.sss"))
     GLMNetCrossValidation(path, nfolds, path.lambda, meanloss, stdloss)
 end
 end # module
